@@ -1,4 +1,8 @@
-require("dotenv").config();
+const CLIENT_ID = process.env.CLIENT_ID;
+console.log("CLIENT_ID:", process.env.CLIENT_ID ? "FOUND" : "MISSING");
+console.log("CLIENT_SECRET:", process.env.CLIENT_SECRET ? "FOUND" : "MISSING");
+console.log("REFRESH_TOKEN:", process.env.REFRESH_TOKEN ? "FOUND" : "MISSING");
+console.log("FOLDER_ID:", process.env.FOLDER_ID ? "FOUND" : "MISSING");
 
 const express = require("express");
 const cors = require("cors");
