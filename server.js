@@ -1,3 +1,5 @@
+require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
@@ -20,16 +22,13 @@ app.use((req, res, next) => {
    GOOGLE DRIVE AUTH
 ========================= */
 
-const CLIENT_ID =
-  "442000452380-r4k2b173kbglsa9qv1rjrhk0iv68o9tp.apps.googleusercontent.com";
+const CLIENT_ID = process.env.CLIENT_ID;
 
-const CLIENT_SECRET =
-  "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";
+const CLIENT_SECRET = process.env.CLIENT_SECRET;
 
-const REDIRECT_URI = "http://localhost";
+const REDIRECT_URI = process.env.REDIRECT_URI;
 
-const REFRESH_TOKEN =
-  "1//0gbW_ytyp5-LMCgYIARAAGBASNwF-L9Iruh_GlXCN5N-V9n38O_6r1MNDEiqa0fFWSwWMGDeTkOd5a8TVLjfbOO1Janok4Xz8sr0";
+const REFRESH_TOKEN = process.env.REFRESH_TOKEN;
 
 const oAuth2Client = new google.auth.OAuth2(
   CLIENT_ID,
@@ -40,7 +39,15 @@ const oAuth2Client = new google.auth.OAuth2(
 oAuth2Client.setCredentials({
   refresh_token: REFRESH_TOKEN,
 });
-
+oAuth2Client.getAccessToken()
+  .then((token) => {
+    console.log("✅ GOOGLE AUTH SUCCESS");
+    console.log(token?.token);
+  })
+  .catch((err) => {
+    console.error("❌ GOOGLE AUTH FAILED");
+    console.error(err);
+  });
 const drive = google.drive({
   version: "v3",
   auth: oAuth2Client,
@@ -84,7 +91,7 @@ async function findOrCreateFolder(folderName, parentId = null) {
 /* =========================
    GOOGLE DRIVE FOLDER ID
 ========================= */
-const FOLDER_ID = "1GbhVPgsvHCuOhQUn6Z5gqHuG04l10aHN";
+const FOLDER_ID = process.env.FOLDER_ID;
 
 /* =========================
    MULTER CONFIGURATION
@@ -209,7 +216,7 @@ async function uploadFileToDrive(
     // =========================
 
     const mediaStream = stream.Readable.from(file.buffer);
-
+    console.log("UPLOAD SUCCESS");
     const response = await drive.files.create({
       requestBody: {
         name: file.originalname,
