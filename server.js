@@ -286,29 +286,51 @@ app.delete("/delete-file/:fileId", async (req, res) => {
    NEW AUTO-BACKUP ROUTES
 ========================= */
 
-// WEEKLY BACKUP UPLOAD ROUTE
-app.post("/upload-weekly-backup", async (req, res) => {
+// WEEKLY BACKUP UPLOAD ROUTE (Supports both JSON and Excel with Day-wise folders)
+app.post("/upload-weekly-backup", upload.single("file"), async (req, res) => {
   try {
-    const { backupData, weekday, timestamp } = req.body;
+    const { weekday, backupType, timestamp } = req.body;
+    const file = req.file;
     
-    if (!backupData || !weekday) {
-      return res.status(400).json({ success: false, error: 'Missing backupData or weekday' });
+    if (!file || !weekday) {
+      return res.status(400).json({ success: false, error: 'Missing file or weekday' });
     }
     
-    console.log(`📤 Receiving backup for ${weekday}`);
+    // Skip Sunday backups
+    if (weekday === 'Sunday') {
+      return res.json({ success: true, message: 'Sunday backups are disabled', skipped: true });
+    }
     
-    // Use the BACKUPS_FOLDER_ID if provided, otherwise find or create "NetCom CRM Backups" folder
+    console.log(`📤 Receiving ${backupType || 'JSON'} backup for ${weekday}`);
+    
+    // Create main backups folder at ROOT level
     let backupsFolderId = BACKUPS_FOLDER_ID;
-    
     if (!backupsFolderId) {
-      backupsFolderId = await findOrCreateFolder("NetCom CRM Backups", FOLDER_ID);
-      console.log(`📁 Created backups folder: ${backupsFolderId}`);
+      backupsFolderId = await findOrCreateFolder("NetCom CRM Backups", null);
+      console.log(`📁 Created backups folder at ROOT level: ${backupsFolderId}`);
     }
     
-    // Check if file for this weekday already exists
-    const fileName = `${weekday}.json`;
-    const query = `name='${fileName}' and '${backupsFolderId}' in parents and trashed=false`;
+    // Create day-wise folder (Monday, Tuesday, etc.)
+    const dayFolderId = await findOrCreateFolder(weekday, backupsFolderId);
     
+    // Create subfolders for JSON and Excel
+    const jsonFolderId = await findOrCreateFolder("JSON", dayFolderId);
+    const excelFolderId = await findOrCreateFolder("Excel", dayFolderId);
+    
+    // Determine which folder to use
+    let targetFolderId;
+    let fileName;
+    
+    if (backupType === 'excel') {
+      targetFolderId = excelFolderId;
+      fileName = `backup.xlsx`;
+    } else {
+      targetFolderId = jsonFolderId;
+      fileName = `backup.json`;
+    }
+    
+    // Check if file already exists
+    const query = `name='${fileName}' and '${targetFolderId}' in parents and trashed=false`;
     const existingFiles = await drive.files.list({
       q: query,
       fields: "files(id, name)"
@@ -316,46 +338,51 @@ app.post("/upload-weekly-backup", async (req, res) => {
     
     // Delete existing file if it exists (replace it)
     if (existingFiles.data.files.length > 0) {
-      for (const file of existingFiles.data.files) {
-        await drive.files.delete({ fileId: file.id });
-        console.log(`🗑️ Deleted existing file: ${fileName}`);
+      for (const existingFile of existingFiles.data.files) {
+        await drive.files.delete({ fileId: existingFile.id });
+        console.log(`🗑️ Deleted old ${weekday} ${backupType} backup`);
       }
     }
     
     // Upload new file
+    const mediaStream = stream.Readable.from(file.buffer);
+    
     const fileMetadata = {
       name: fileName,
-      parents: [backupsFolderId],
-      mimeType: 'application/json'
+      parents: [targetFolderId],
     };
     
-    const media = {
-      mimeType: 'application/json',
-      body: JSON.stringify(backupData, null, 2)
-    };
+    if (backupType === 'excel') {
+      fileMetadata.mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    } else {
+      fileMetadata.mimeType = 'application/json';
+    }
     
-    const file = await drive.files.create({
-      resource: fileMetadata,
-      media: media,
+    const uploadedFile = await drive.files.create({
+      requestBody: fileMetadata,
+      media: {
+        mimeType: file.mimetype,
+        body: mediaStream,
+      },
       fields: 'id, name, webViewLink'
     });
     
     // Make file publicly readable
     await drive.permissions.create({
-      fileId: file.data.id,
+      fileId: uploadedFile.data.id,
       requestBody: {
         role: 'reader',
         type: 'anyone'
       }
     });
     
-    console.log(`✅ Uploaded ${fileName} to backups folder`);
+    console.log(`✅ Uploaded ${weekday} ${backupType} backup (replaced old one)`);
     
     res.json({
       success: true,
-      message: `${weekday} backup uploaded successfully`,
-      fileId: file.data.id,
-      fileLink: file.data.webViewLink
+      message: `${weekday} ${backupType || 'JSON'} backup uploaded successfully`,
+      fileId: uploadedFile.data.id,
+      fileLink: uploadedFile.data.webViewLink
     });
     
   } catch (error) {
@@ -364,7 +391,7 @@ app.post("/upload-weekly-backup", async (req, res) => {
   }
 });
 
-// GET WEEKLY BACKUP ROUTE
+// GET WEEKLY BACKUP ROUTE (FIXED - looks at ROOT level)
 app.get("/get-weekly-backup/:weekday", async (req, res) => {
   try {
     const { weekday } = req.params;
@@ -372,7 +399,8 @@ app.get("/get-weekly-backup/:weekday", async (req, res) => {
     let backupsFolderId = BACKUPS_FOLDER_ID;
     
     if (!backupsFolderId) {
-      backupsFolderId = await findOrCreateFolder("NetCom CRM Backups", FOLDER_ID);
+      // Look for folder at ROOT level
+      backupsFolderId = await findOrCreateFolder("NetCom CRM Backups", null);
     }
     
     const fileName = `${weekday}.json`;
