@@ -296,11 +296,7 @@ app.post("/upload-weekly-backup", upload.single("file"), async (req, res) => {
       return res.status(400).json({ success: false, error: 'Missing file or weekday' });
     }
     
-    // Skip Sunday backups
-    if (weekday === 'Sunday') {
-      return res.json({ success: true, message: 'Sunday backups are disabled', skipped: true });
-    }
-    
+ 
     console.log(`📤 Receiving ${backupType || 'JSON'} backup for ${weekday}`);
     
     // Create main backups folder at ROOT level
