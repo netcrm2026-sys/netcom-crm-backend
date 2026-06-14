@@ -64,7 +64,10 @@ const drive = google.drive({
   version: "v3",
   auth: oAuth2Client,
 });
-
+// FOLDER LOCK MECHANISM - Prevents multiple folders being created when uploading multiple files at once
+if (!global.folderCreationLocks) {
+  global.folderCreationLocks = new Map();
+}
 /* =========================
    FIND OR CREATE FOLDER (FIXED - removed extra space)
 ========================= */
@@ -202,16 +205,72 @@ app.post("/upload-service-docs", upload.any(), async (req, res) => {
       });
     }
 
+    const today = new Date();
+    const currentFY = today.getMonth() >= 3
+      ? `${today.getFullYear()}-${(today.getFullYear() + 1).toString().slice(-2)}`
+      : `${today.getFullYear() - 1}-${today.getFullYear().toString().slice(-2)}`;
+
+    const clientName = req.body.clientName || "Unknown Client";
+    const serviceName = req.body.serviceName || "General Service";
+    const docType = req.body.docType || "Documents";
+
+    // Create lock key for this folder path
+    const folderLockKey = `${clientName}_${serviceName}_${docType}_${currentFY}`;
+    
+    // Wait if another request is already creating these folders
+    while (global.folderCreationLocks.get(folderLockKey) === true) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    // Acquire lock
+    global.folderCreationLocks.set(folderLockKey, true);
+    
+    try {
+      // Create folders ONLY ONCE (only the first file will do this)
+      const clientFolderId = await findOrCreateFolder(clientName, FOLDER_ID);
+      const serviceRootFolder = await findOrCreateFolder("Service & Product", clientFolderId);
+      const financialFolderId = await findOrCreateFolder(currentFY, serviceRootFolder);
+      const mainFolderId = await findOrCreateFolder(serviceName, financialFolderId);
+      const docFolderId = await findOrCreateFolder(docType, mainFolderId);
+      
+      // Store folder ID for upload
+      req.folderIds = { docFolderId };
+      
+    } finally {
+      // Release lock
+      global.folderCreationLocks.set(folderLockKey, false);
+    }
+
+    // Upload all files to the SAME folder
     const uploadedFiles = await Promise.all(
       req.files.map(async (file) => {
-        return await uploadFileToDrive(
-          file,
-          req.body.clientName || "Unknown Client",
-          req.body.serviceName || "General Service",
-          null,
-          req.body.docType,
-          "service"
-        );
+        const mediaStream = stream.Readable.from(file.buffer);
+
+        const response = await drive.files.create({
+          requestBody: {
+            name: file.originalname,
+            parents: [req.folderIds.docFolderId]
+          },
+          media: {
+            mimeType: file.mimetype,
+            body: mediaStream
+          },
+          fields: "id,name,webViewLink"
+        });
+
+        await drive.permissions.create({
+          fileId: response.data.id,
+          requestBody: {
+            role: "reader",
+            type: "anyone"
+          }
+        });
+
+        return {
+          fileName: file.originalname,
+          url: response.data.webViewLink,
+          driveFileId: response.data.id
+        };
       })
     );
 
@@ -222,8 +281,7 @@ app.post("/upload-service-docs", upload.any(), async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
-
-// AMC DOCS ROUTE
+// AMC DOCS ROUTE WITH FOLDER LOCKING
 app.post("/upload-amc-docs", upload.any(), async (req, res) => {
   try {
     console.log("BODY:", req.body);
@@ -236,18 +294,72 @@ app.post("/upload-amc-docs", upload.any(), async (req, res) => {
       });
     }
 
+    const today = new Date();
+    const currentFY = today.getMonth() >= 3
+      ? `${today.getFullYear()}-${(today.getFullYear() + 1).toString().slice(-2)}`
+      : `${today.getFullYear() - 1}-${today.getFullYear().toString().slice(-2)}`;
+
+    const clientName = req.body.clientName || "Unknown Client";
+    const serviceName = req.body.serviceName || "General AMC";
+    const docType = req.body.docType || "Documents";
+
+    // Create lock key for this folder path
+    const folderLockKey = `amc_${clientName}_${serviceName}_${docType}_${currentFY}`;
+    
+    // Wait if another request is already creating these folders
+    while (global.folderCreationLocks.get(folderLockKey) === true) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    // Acquire lock
+    global.folderCreationLocks.set(folderLockKey, true);
+    
+    try {
+      // Create folders ONLY ONCE
+      const clientFolderId = await findOrCreateFolder(clientName, FOLDER_ID);
+      const amcRootFolder = await findOrCreateFolder("AMC", clientFolderId);
+      const financialFolderId = await findOrCreateFolder(currentFY, amcRootFolder);
+      const mainFolderId = await findOrCreateFolder(serviceName, financialFolderId);
+      const docFolderId = await findOrCreateFolder(docType, mainFolderId);
+      
+      // Store folder ID for upload
+      req.folderIds = { docFolderId };
+      
+    } finally {
+      // Release lock
+      global.folderCreationLocks.set(folderLockKey, false);
+    }
+
+    // Upload all files to the SAME folder
     const uploadedFiles = await Promise.all(
       req.files.map(async (file) => {
-        return await uploadFileToDrive(
-          file,
-          req.body.clientName || "Unknown Client",
-          req.body.serviceName || "General AMC",
-          null,
-          req.body.docType,
-          "amc",
-          req.body.amcStartDate,
-          req.body.amcEndDate
-        );
+        const mediaStream = stream.Readable.from(file.buffer);
+
+        const response = await drive.files.create({
+          requestBody: {
+            name: file.originalname,
+            parents: [req.folderIds.docFolderId]
+          },
+          media: {
+            mimeType: file.mimetype,
+            body: mediaStream
+          },
+          fields: "id,name,webViewLink"
+        });
+
+        await drive.permissions.create({
+          fileId: response.data.id,
+          requestBody: {
+            role: "reader",
+            type: "anyone"
+          }
+        });
+
+        return {
+          fileName: file.originalname,
+          url: response.data.webViewLink,
+          driveFileId: response.data.id
+        };
       })
     );
 
@@ -281,7 +393,6 @@ app.delete("/delete-file/:fileId", async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
-
 /* =========================
    NEW AUTO-BACKUP ROUTES
 ========================= */
@@ -296,7 +407,6 @@ app.post("/upload-weekly-backup", upload.single("file"), async (req, res) => {
       return res.status(400).json({ success: false, error: 'Missing file or weekday' });
     }
     
- 
     console.log(`📤 Receiving ${backupType || 'JSON'} backup for ${weekday}`);
     
     // Create main backups folder at ROOT level
