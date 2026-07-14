@@ -5,7 +5,7 @@ const cors = require("cors");
 const multer = require("multer");
 const { google } = require("googleapis");
 const stream = require("stream");
-
+const { checkAMCExpiryAndSendReminders } = require('./amcReminderService');
 const app = express();
 
 /* =========================
@@ -524,6 +524,33 @@ app.get("/get-weekly-backup/:weekday", async (req, res) => {
     }
   } catch (error) {
     console.error('Get backup error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+/* =========================
+   AMC REMINDER ROUTES
+========================= */
+
+// Endpoint for cron job to trigger (POST)
+app.post("/api/check-amc-reminders", async (req, res) => {
+  try {
+    console.log("🔍 AMC reminder check triggered");
+    const result = await checkAMCExpiryAndSendReminders();
+    res.status(200).json(result);
+  } catch (error) {
+    console.error("Error in AMC reminder check:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Test endpoint (GET) - For manual testing
+app.get("/api/test-amc-reminders", async (req, res) => {
+  try {
+    console.log("🧪 Test AMC reminder triggered");
+    const result = await checkAMCExpiryAndSendReminders();
+    res.status(200).json(result);
+  } catch (error) {
+    console.error("Error in AMC reminder test:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
