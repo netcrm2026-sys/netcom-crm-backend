@@ -1,4 +1,13 @@
 require("dotenv").config();
+const admin = require('firebase-admin');
+
+// Initialize Firebase Admin
+if (!admin.apps.length) {
+  admin.initializeApp({
+    projectId: 'netcoms-crm',
+  });
+  console.log('✅ Firebase Admin initialized in server.js');
+}
 
 const express = require("express");
 const cors = require("cors");

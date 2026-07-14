@@ -1,4 +1,21 @@
 const admin = require('firebase-admin');
+
+// ============================================================
+// INITIALIZE FIREBASE ADMIN - FIXED
+// ============================================================
+
+// Initialize Firebase Admin with explicit config
+if (!admin.apps.length) {
+  try {
+    admin.initializeApp({
+      projectId: 'netcoms-crm',
+    });
+    console.log('✅ Firebase Admin initialized successfully');
+  } catch (error) {
+    console.error('❌ Failed to initialize Firebase Admin:', error);
+  }
+}
+
 const { sendEmail } = require('./emailService');
 
 // ============================================================
@@ -20,8 +37,10 @@ async function checkAMCExpiryAndSendReminders() {
   console.log('🔍 Checking AMC expiry reminders...');
   
   try {
-    // 1. Get all clients from Firestore
+    // Get Firestore instance
     const db = admin.firestore();
+    
+    // 1. Get all clients from Firestore
     const clientsSnapshot = await db.collection('clients').get();
     const clients = clientsSnapshot.docs.map(doc => ({
       id: doc.id,
