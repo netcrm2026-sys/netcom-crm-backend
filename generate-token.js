@@ -2,7 +2,7 @@ const fs = require("fs");
 const readline = require("readline");
 const { google } = require("googleapis");
 
-const credentials = require("./client_secret.json");
+
 
 const { client_secret, client_id, redirect_uris } =
   credentials.installed;

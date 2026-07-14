@@ -37,6 +37,7 @@
     "firebase": "^10.7.0",
     "googleapis": "^173.0.0",
     "multer": "^2.1.1",
+    "nodemailer": "^9.0.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "xlsx": "^0.18.5"
