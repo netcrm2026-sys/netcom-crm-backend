@@ -1,22 +1,26 @@
-const admin = require('firebase-admin');
-
 // ============================================================
-// INITIALIZE FIREBASE ADMIN - FIXED
+// AMC REMINDER SERVICE - USING SERVER'S ADMIN INSTANCE
 // ============================================================
-
-// Initialize Firebase Admin with explicit config
-if (!admin.apps.length) {
-  try {
-    admin.initializeApp({
-      projectId: 'netcoms-crm',
-    });
-    console.log('✅ Firebase Admin initialized successfully');
-  } catch (error) {
-    console.error('❌ Failed to initialize Firebase Admin:', error);
-  }
-}
 
 const { sendEmail } = require('./emailService');
+
+// ============================================================
+// ADMIN INSTANCE REFERENCE (SET FROM SERVER)
+// ============================================================
+
+let adminInstance = null;
+
+function setAdminInstance(admin) {
+  adminInstance = admin;
+  console.log('✅ Admin instance set in amcReminderService');
+}
+
+function getFirestore() {
+  if (!adminInstance) {
+    throw new Error('Firebase Admin not initialized. Call setAdminInstance first.');
+  }
+  return adminInstance.firestore();
+}
 
 // ============================================================
 // AMC EXPIRY REMINDER SERVICE
@@ -37,8 +41,7 @@ async function checkAMCExpiryAndSendReminders() {
   console.log('🔍 Checking AMC expiry reminders...');
   
   try {
-    // Get Firestore instance
-    const db = admin.firestore();
+    const db = getFirestore();
     
     // 1. Get all clients from Firestore
     const clientsSnapshot = await db.collection('clients').get();
@@ -191,4 +194,7 @@ async function sendAMCExpiryEmail(recipients, amcs) {
 // EXPORT
 // ============================================================
 
-module.exports = { checkAMCExpiryAndSendReminders };
+module.exports = { 
+  checkAMCExpiryAndSendReminders,
+  setAdminInstance 
+};
