@@ -1,5 +1,6 @@
 require("dotenv").config();
 const admin = require('firebase-admin');
+const { getApps, initializeApp } = require('firebase-admin/app');
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
@@ -11,19 +12,17 @@ const { checkAMCExpiryAndSendReminders } = require('./amcReminderService');
 // INITIALIZE FIREBASE ADMIN
 // ============================================================
 
-if (!admin.apps.length) {
-  admin.initializeApp({
+// Initialize Firebase Admin (v14+ compatible)
+if (!getApps().length) {
+  initializeApp({
     projectId: 'netcoms-crm',
   });
   console.log('✅ Firebase Admin initialized in server.js');
 }
 
-// ✅ Share admin instance with amcReminderService
+// Share admin instance with amcReminderService
 const { setAdminInstance } = require('./amcReminderService');
 setAdminInstance(admin);
-
-const app = express();
-
 /* =========================
    ENVIRONMENT VARIABLES
 ========================= */
