@@ -22,10 +22,22 @@ const {
 
 // Initialize Firebase Admin (v14+ compatible)
 if (!getApps().length) {
-  initializeApp({
-    projectId: 'netcoms-crm',
-  });
-  console.log('✅ Firebase Admin initialized in server.js');
+  const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT 
+    ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT) 
+    : null;
+  
+  if (serviceAccount) {
+    initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+      projectId: 'netcoms-crm',
+    });
+    console.log('✅ Firebase Admin initialized with Service Account');
+  } else {
+    initializeApp({
+      projectId: 'netcoms-crm',
+    });
+    console.log('✅ Firebase Admin initialized with default credentials');
+  }
 }
 
 // Get Firestore instance
