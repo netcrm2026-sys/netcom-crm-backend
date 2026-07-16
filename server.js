@@ -1,12 +1,19 @@
 require("dotenv").config();
+
 const admin = require('firebase-admin');
 const { getApps, initializeApp } = require('firebase-admin/app');
+
 const express = require("express");
+const app = express();  // ✅ ADD THIS LINE
+
 const cors = require("cors");
 const multer = require("multer");
 const { google } = require("googleapis");
 const stream = require("stream");
-const { checkAMCExpiryAndSendReminders } = require('./amcReminderService');
+const { 
+  checkAMCExpiryAndSendReminders,
+  setAdminInstance 
+} = require('./amcReminderService');
 
 // ============================================================
 // INITIALIZE FIREBASE ADMIN
@@ -21,7 +28,6 @@ if (!getApps().length) {
 }
 
 // Share admin instance with amcReminderService
-const { setAdminInstance } = require('./amcReminderService');
 setAdminInstance(admin);
 /* =========================
    ENVIRONMENT VARIABLES
@@ -41,6 +47,10 @@ console.log("CLIENT_SECRET:", CLIENT_SECRET ? "FOUND" : "MISSING");
 console.log("REFRESH_TOKEN:", REFRESH_TOKEN ? "FOUND" : "MISSING");
 console.log("FOLDER_ID:", FOLDER_ID ? "FOUND" : "MISSING");
 console.log("BACKUPS_FOLDER_ID:", BACKUPS_FOLDER_ID ? "FOUND" : "MISSING");
+console.log("GMAIL_CLIENT_ID:", process.env.GMAIL_CLIENT_ID ? "FOUND" : "MISSING");
+console.log("GMAIL_CLIENT_SECRET:", process.env.GMAIL_CLIENT_SECRET ? "FOUND" : "MISSING");
+console.log("GMAIL_REFRESH_TOKEN:", process.env.GMAIL_REFRESH_TOKEN ? "FOUND" : "MISSING");
+console.log("GMAIL_SENDER_EMAIL:", process.env.GMAIL_SENDER_EMAIL ? "FOUND" : "MISSING");
 
 /* =========================
    MIDDLEWARE
