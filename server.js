@@ -3,7 +3,7 @@ require("dotenv").config();
 const admin = require('firebase-admin');
 const { getApps, initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
-const { cert } = require('firebase-admin/credential');
+const { cert } = require('firebase-admin');
 const express = require("express");
 const app = express();
 
