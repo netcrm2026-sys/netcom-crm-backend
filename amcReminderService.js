@@ -1,25 +1,25 @@
 // ============================================================
-// AMC REMINDER SERVICE - USING SERVER'S ADMIN INSTANCE
+// AMC REMINDER SERVICE - CORRECT VERSION (v14+)
 // ============================================================
 
 const { sendEmail } = require('./emailService');
 
 // ============================================================
-// ADMIN INSTANCE REFERENCE (SET FROM SERVER)
+// FIRESTORE INSTANCE REFERENCE (SET FROM SERVER)
 // ============================================================
 
-let adminInstance = null;
+let dbInstance = null;
 
-function setAdminInstance(admin) {
-  adminInstance = admin;
-  console.log('✅ Admin instance set in amcReminderService');
+function setAdminInstance(database) {
+  dbInstance = database;
+  console.log('✅ Firestore instance set in amcReminderService');
 }
 
 function getFirestore() {
-  if (!adminInstance) {
-    throw new Error('Firebase Admin not initialized. Call setAdminInstance first.');
+  if (!dbInstance) {
+    throw new Error('Firestore not initialized. Call setAdminInstance first.');
   }
-  return adminInstance.firestore();
+  return dbInstance;
 }
 
 // ============================================================
@@ -196,5 +196,5 @@ async function sendAMCExpiryEmail(recipients, amcs) {
 
 module.exports = { 
   checkAMCExpiryAndSendReminders,
-  setAdminInstance 
+  setAdminInstance
 };

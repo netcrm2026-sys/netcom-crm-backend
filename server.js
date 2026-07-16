@@ -2,9 +2,10 @@ require("dotenv").config();
 
 const admin = require('firebase-admin');
 const { getApps, initializeApp } = require('firebase-admin/app');
+const { getFirestore } = require('firebase-admin/firestore');
 
 const express = require("express");
-const app = express();  // ✅ ADD THIS LINE
+const app = express();
 
 const cors = require("cors");
 const multer = require("multer");
@@ -27,8 +28,12 @@ if (!getApps().length) {
   console.log('✅ Firebase Admin initialized in server.js');
 }
 
-// Share admin instance with amcReminderService
-setAdminInstance(admin);
+// Get Firestore instance
+const db = getFirestore();
+console.log('✅ Firestore instance created');
+
+// Share Firestore instance with amcReminderService
+setAdminInstance(db);
 /* =========================
    ENVIRONMENT VARIABLES
 ========================= */
