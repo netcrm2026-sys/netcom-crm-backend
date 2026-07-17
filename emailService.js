@@ -28,17 +28,23 @@ oauth2Client.setCredentials({
 async function createTransporter() {
   try {
     const accessToken = await oauth2Client.getAccessToken();
+    const token = typeof accessToken === 'string' ? accessToken : accessToken.token;
     
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
       auth: {
         type: 'OAuth2',
         user: SENDER_EMAIL,
         clientId: CLIENT_ID,
         clientSecret: CLIENT_SECRET,
         refreshToken: REFRESH_TOKEN,
-        accessToken: accessToken.token,
+        accessToken: token,
       },
+      timeout: 30000,
+      connectionTimeout: 30000,
+      socketTimeout: 30000,
     });
     
     return transporter;
