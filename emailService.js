@@ -1,8 +1,7 @@
-const nodemailer = require('nodemailer');
 const { google } = require('googleapis');
 
 // ============================================================
-// GMAIL OAuth Configuration
+// GMAIL API CONFIGURATION (NO SMTP)
 // ============================================================
 
 const CLIENT_ID = process.env.GMAIL_CLIENT_ID;
@@ -22,55 +21,66 @@ oauth2Client.setCredentials({
 });
 
 // ============================================================
-// CREATE TRANSPORTER
-// ============================================================
-
-async function createTransporter() {
-  try {
-    const accessToken = await oauth2Client.getAccessToken();
-    const token = typeof accessToken === 'string' ? accessToken : accessToken.token;
-    
-   const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 587,
-  secure: false,
-  auth: {
-    type: 'OAuth2',
-    user: SENDER_EMAIL,
-    clientId: CLIENT_ID,
-    clientSecret: CLIENT_SECRET,
-    refreshToken: REFRESH_TOKEN,
-    accessToken: token,
-  },
-  timeout: 30000,
-  connectionTimeout: 30000,
-  socketTimeout: 30000,
-  family: 4,  // Force IPv4
-});
-    
-    return transporter;
-  } catch (error) {
-    console.error('Error creating transporter:', error);
-    throw error;
-  }
-}
-
-// ============================================================
-// SEND EMAIL FUNCTION
+// SEND EMAIL USING GMAIL API
 // ============================================================
 
 async function sendEmail(to, subject, htmlContent) {
   try {
-    const transporter = await createTransporter();
+    // Get fresh access token
+    const accessToken = await oauth2Client.getAccessToken();
+    const token = typeof accessToken === 'string' ? accessToken : accessToken.token;
     
-    const mailOptions = {
-      from: `NetCRM <${SENDER_EMAIL}>`,
-      to: to,
-      subject: subject,
-      html: htmlContent,
-    };
+    // Create email message (RFC 2822 format)
+    const boundary = 'boundary_' + Date.now();
     
-    const result = await transporter.sendMail(mailOptions);
+    // Plain text version (strip HTML)
+    const plainText = htmlContent.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+    
+    const message = [
+      `From: NetCRM <${SENDER_EMAIL}>`,
+      `To: ${to}`,
+      `Subject: ${subject}`,
+      'MIME-Version: 1.0',
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      '',
+      `--${boundary}`,
+      'Content-Type: text/plain; charset="UTF-8"',
+      '',
+      plainText,
+      '',
+      `--${boundary}`,
+      'Content-Type: text/html; charset="UTF-8"',
+      '',
+      htmlContent,
+      '',
+      `--${boundary}--`,
+    ].join('\r\n');
+    
+    // Encode to base64url (Gmail required format)
+    const encodedMessage = Buffer.from(message)
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+    
+    // Send via Gmail API
+    const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        raw: encodedMessage,
+      }),
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(`Gmail API error: ${errorData.error?.message || response.statusText}`);
+    }
+    
+    const result = await response.json();
     console.log(`✅ Email sent to ${to}`);
     return result;
     
