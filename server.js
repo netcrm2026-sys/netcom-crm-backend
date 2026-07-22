@@ -11,10 +11,17 @@ const cors = require("cors");
 const multer = require("multer");
 const { google } = require("googleapis");
 const stream = require("stream");
+// AMC Reminder Service
 const { 
   checkAMCExpiryAndSendReminders,
-  setAdminInstance 
+  setAdminInstance: setAMCInstance 
 } = require('./amcReminderService');
+
+// Subscription Reminder Service
+const { 
+  checkSubscriptionAndSendReminders,
+  setAdminInstance: setSubscriptionInstance 
+} = require('./subscriptionReminderService');
 
 // ============================================================
 // INITIALIZE FIREBASE ADMIN
@@ -44,8 +51,10 @@ if (!getApps().length) {
 const db = getFirestore();
 console.log('✅ Firestore instance created');
 
-// Share Firestore instance with amcReminderService
-setAdminInstance(db);
+// Share Firestore instance with both services
+setAMCInstance(db);
+setSubscriptionInstance(db);
+console.log('✅ Firestore instance shared with AMC and Subscription services');
 /* =========================
    ENVIRONMENT VARIABLES
 ========================= */
@@ -576,7 +585,30 @@ app.get("/api/test-amc-reminders", async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+/* =========================
+   SUBSCRIPTION REMINDER ROUTES
+========================= */
+app.post("/api/check-subscription-reminders", async (req, res) => {
+  try {
+    console.log("🔍 Subscription reminder check triggered");
+    const result = await checkSubscriptionAndSendReminders();
+    res.status(200).json(result);
+  } catch (error) {
+    console.error("Error in subscription reminder check:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
+app.get("/api/test-subscription-reminders", async (req, res) => {
+  try {
+    console.log("🧪 Test Subscription reminder triggered");
+    const result = await checkSubscriptionAndSendReminders();
+    res.status(200).json(result);
+  } catch (error) {
+    console.error("Error in subscription reminder test:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 /* =========================
    TEST ROUTE
 ========================= */

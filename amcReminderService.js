@@ -26,7 +26,7 @@ function getFirestore() {
 // AMC EXPIRY REMINDER SERVICE
 // ============================================================
 
-const REMINDER_DAYS = [30, 20, 15, 10, 5, 3, 2, 1];
+const REMINDER_DAYS = [30, 20, 15, 10, 5, 3, 2, 1, 0];
 
 function formatDate(dateString) {
   if (!dateString) return '—';
@@ -82,7 +82,8 @@ async function checkAMCExpiryAndSendReminders() {
         const endDate = new Date(amc.endDate);
         endDate.setHours(0, 0, 0, 0);
         
-        const daysUntilExpiry = Math.ceil((endDate - today) / (1000 * 60 * 60 * 24));
+       // Calculate days remaining (excluding today)
+const daysUntilExpiry = Math.ceil((endDate - today) / (1000 * 60 * 60 * 24));
         
         if (REMINDER_DAYS.includes(daysUntilExpiry) && daysUntilExpiry >= 0) {
           expiringAMCs.push({
@@ -117,69 +118,277 @@ async function checkAMCExpiryAndSendReminders() {
 // ============================================================
 // SEND AMC EXPIRY EMAIL
 // ============================================================
-
 async function sendAMCExpiryEmail(recipients, amcs) {
-  const amcList = amcs.map(amc => `
-    <tr>
-      <td style="padding: 8px 12px; border: 1px solid #e2e8f0;">${amc.clientName}</td>
-      <td style="padding: 8px 12px; border: 1px solid #e2e8f0;">${amc.amcName}</td>
-      <td style="padding: 8px 12px; border: 1px solid #e2e8f0;">${formatDate(amc.endDate)}</td>
-      <td style="padding: 8px 12px; border: 1px solid #e2e8f0; text-align: center;">
-        <span style="background: #fef3c7; color: #92400e; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;">
-          ${amc.daysUntilExpiry} days
-        </span>
-      </td>
-    </tr>
-  `).join('');
+  // Group by days remaining for better organization
+  const grouped = {};
+  amcs.forEach(amc => {
+    const days = amc.daysUntilExpiry;
+    if (!grouped[days]) grouped[days] = [];
+    grouped[days].push(amc);
+  });
 
-  const subject = `🔔 AMC Expiry Reminder - ${amcs.length} AMCs expiring soon`;
+  const sortedDays = Object.keys(grouped).sort((a, b) => a - b);
+  
+  // Build table rows
+  let amcList = '';
+  sortedDays.forEach(days => {
+    const items = grouped[days];
+    const daysNum = parseInt(days);
+    
+    items.forEach(amc => {
+      const daysUntilExpiry = amc.daysUntilExpiry;
+      
+      // Determine urgency based on days
+      let urgencyLabel, urgencyColor, urgencyColorBg, urgencyColorText;
+      
+      if (daysUntilExpiry === 0) {
+        urgencyLabel = '🔴 EXPIRES TODAY!';
+        urgencyColor = '#dc2626';
+        urgencyColorBg = '#fee2e2';
+        urgencyColorText = '#dc2626';
+      } else if (daysUntilExpiry <= 3) {
+        urgencyLabel = '🔴 URGENT';
+        urgencyColor = '#dc2626';
+        urgencyColorBg = '#fee2e2';
+        urgencyColorText = '#dc2626';
+      } else if (daysUntilExpiry <= 7) {
+        urgencyLabel = '⚠️ Due Soon';
+        urgencyColor = '#f59e0b';
+        urgencyColorBg = '#fef3c7';
+        urgencyColorText = '#92400e';
+      } else {
+        urgencyLabel = 'ℹ️ Upcoming';
+        urgencyColor = '#3b82f6';
+        urgencyColorBg = '#dbeafe';
+        urgencyColorText = '#1e40af';
+      }
+      
+      amcList += `
+        <tr>
+          <td style="padding: 10px 14px; border: 1px solid #e2e8f0; font-weight: 500; color: #0f172a;">${amc.clientName}</td>
+          <td style="padding: 10px 14px; border: 1px solid #e2e8f0;">${amc.amcName}</td>
+          <td style="padding: 10px 14px; border: 1px solid #e2e8f0; color: #1e293b;">${formatDate(amc.endDate)}</td>
+          <td style="padding: 10px 14px; border: 1px solid #e2e8f0; text-align: center;">
+            <span style="background: ${urgencyColorBg}; color: ${urgencyColorText}; padding: 3px 12px; border-radius: 14px; font-size: 12px; font-weight: 600; display: inline-block;">
+              ${daysUntilExpiry === 0 ? 'Today!' : `${daysUntilExpiry} ${daysUntilExpiry === 1 ? 'day' : 'days'}`}
+            </span>
+            <br>
+            <span style="font-size: 10px; color: ${urgencyColor}; font-weight: 600;">
+              ${urgencyLabel}
+            </span>
+          </td>
+        </tr>
+      `;
+    });
+  });
+
+  const totalAMCs = amcs.length;
+  const urgentCount = amcs.filter(a => a.daysUntilExpiry <= 3).length;
+  const expiringToday = amcs.filter(a => a.daysUntilExpiry === 0).length;
+  
+  const subject = `[NetCRM] AMC Expiry Reminder - ${totalAMCs} AMC${totalAMCs > 1 ? 's' : ''} expiring soon`;
   
   const htmlContent = `
     <!DOCTYPE html>
     <html>
     <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>AMC Expiry Reminder</title>
       <style>
-        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 0; background: #f8fafc; }
-        .container { max-width: 700px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; }
-        .header { border-bottom: 3px solid #3b82f6; padding-bottom: 16px; margin-bottom: 20px; }
-        .header h1 { font-size: 24px; color: #0f172a; margin: 0; }
-        .header p { color: #64748b; margin: 4px 0 0; }
-        .alert-box { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; }
-        .alert-box strong { color: #92400e; }
-        table { width: 100%; border-collapse: collapse; margin: 16px 0; }
-        th { background: #f1f5f9; padding: 10px 12px; text-align: left; font-size: 12px; font-weight: 600; color: #475569; text-transform: uppercase; border: 1px solid #e2e8f0; }
-        td { padding: 8px 12px; border: 1px solid #e2e8f0; font-size: 13px; }
-        .footer { margin-top: 24px; padding-top: 16px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; }
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+          margin: 0;
+          padding: 0;
+          background: #f1f5f9;
+          color: #0f172a;
+        }
+        .container {
+          max-width: 680px;
+          margin: 20px auto;
+          background: #ffffff;
+          padding: 32px;
+          border-radius: 16px;
+          box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+        }
+        .header {
+          border-bottom: 4px solid #3b82f6;
+          padding-bottom: 20px;
+          margin-bottom: 24px;
+        }
+        .header h1 {
+          font-size: 26px;
+          font-weight: 700;
+          color: #0f172a;
+          margin: 0;
+        }
+        .header h1 span {
+          color: #3b82f6;
+        }
+        .header .subtitle {
+          color: #64748b;
+          font-size: 14px;
+          margin: 6px 0 0;
+        }
+        .summary-box {
+          background: #f8fafc;
+          border-radius: 12px;
+          padding: 16px 20px;
+          margin-bottom: 24px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          flex-wrap: wrap;
+          border: 1px solid #e2e8f0;
+        }
+        .summary-box .stat {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .summary-box .stat .number {
+          font-size: 20px;
+          font-weight: 700;
+        }
+        .summary-box .stat .label {
+          color: #64748b;
+          font-size: 13px;
+        }
+        .summary-box .stat.urgent .number {
+          color: #dc2626;
+        }
+        .summary-box .stat.today .number {
+          color: #dc2626;
+        }
+        .alert-box {
+          background: #fef3c7;
+          border-left: 4px solid #f59e0b;
+          padding: 14px 18px;
+          border-radius: 8px;
+          margin-bottom: 24px;
+          font-size: 14px;
+        }
+        .alert-box strong {
+          color: #92400e;
+        }
+        .alert-box.urgent-alert {
+          background: #fee2e2;
+          border-left-color: #dc2626;
+        }
+        .alert-box.urgent-alert strong {
+          color: #991b1b;
+        }
+        .alert-box.today-alert {
+          background: #fef2f2;
+          border-left-color: #dc2626;
+        }
+        .alert-box.today-alert strong {
+          color: #dc2626;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          margin: 16px 0;
+          font-size: 13px;
+        }
+        th {
+          background: #f1f5f9;
+          padding: 10px 14px;
+          text-align: left;
+          font-weight: 600;
+          color: #475569;
+          text-transform: uppercase;
+          font-size: 11px;
+          letter-spacing: 0.05em;
+          border: 1px solid #e2e8f0;
+        }
+        td {
+          padding: 10px 14px;
+          border: 1px solid #e2e8f0;
+          vertical-align: middle;
+        }
+        .footer {
+          margin-top: 28px;
+          padding-top: 20px;
+          border-top: 1px solid #e2e8f0;
+          text-align: center;
+          font-size: 12px;
+          color: #94a3b8;
+        }
+        .footer .brand {
+          font-weight: 600;
+          color: #0f172a;
+        }
+        .footer .meta {
+          margin-top: 4px;
+          font-size: 11px;
+        }
+        @media (max-width: 480px) {
+          .container { padding: 20px; }
+          .summary-box { flex-direction: column; gap: 8px; align-items: stretch; }
+        }
       </style>
     </head>
     <body>
       <div class="container">
         <div class="header">
-          <h1>🔔 AMC Expiry Reminder</h1>
-          <p>${amcs.length} AMC contracts are expiring soon</p>
+          <h1>🔔 <span>AMC Expiry</span> Reminder</h1>
+          <div class="subtitle">${totalAMCs} AMC contract${totalAMCs > 1 ? 's are' : ' is'} expiring soon</div>
         </div>
-        
-        <div class="alert-box">
-          <strong>⚠️ ${amcs.length} AMC(s)</strong> are expiring soon. Please take necessary action.
+
+        <div class="summary-box">
+          <div class="stat">
+            <span class="number">${totalAMCs}</span>
+            <span class="label">Total AMC${totalAMCs > 1 ? 's' : ''}</span>
+          </div>
+          ${expiringToday > 0 ? `
+            <div class="stat today">
+              <span class="number">${expiringToday}</span>
+              <span class="label">Expiring Today!</span>
+            </div>
+          ` : ''}
+          <div class="stat urgent">
+            <span class="number">${urgentCount}</span>
+            <span class="label">Expiring within 3 days</span>
+          </div>
+          <div class="stat">
+            <span class="number">${amcs.length - urgentCount}</span>
+            <span class="label">Expiring within 30 days</span>
+          </div>
         </div>
-        
+
+        ${expiringToday > 0 ? `
+          <div class="alert-box today-alert">
+            <strong>🚨 ${expiringToday} AMC${expiringToday > 1 ? 's' : ''}</strong> is expiring TODAY! Immediate action required!
+          </div>
+        ` : urgentCount > 0 ? `
+          <div class="alert-box urgent-alert">
+            <strong>⚠️ ${urgentCount} AMC${urgentCount > 1 ? 's' : ''}</strong> are expiring within 3 days. Immediate action required!
+          </div>
+        ` : `
+          <div class="alert-box">
+            <strong>⚠️ ${totalAMCs} AMC${totalAMCs > 1 ? 's are' : ' is'}</strong> expiring soon. Please take necessary action.
+          </div>
+        `}
+
         <table>
           <thead>
             <tr>
               <th>Client</th>
               <th>AMC Name</th>
               <th>Expiry Date</th>
-              <th>Days Left</th>
+              <th>Status</th>
             </tr>
           </thead>
           <tbody>
             ${amcList}
           </tbody>
         </table>
-        
+
         <div class="footer">
-          <p>This is an automated reminder from <strong>NetCRM</strong>.</p>
-          <p>© ${new Date().getFullYear()} Netcom Systems - NetCRM</p>
+          <div>This is an automated reminder from <span class="brand">NetCRM</span></div>
+          <div class="meta">© ${new Date().getFullYear()} Netcom Systems - NetCRM</div>
+          <div class="meta" style="color: #cbd5e1; font-size: 10px;">This is an automated message, please do not reply.</div>
         </div>
       </div>
     </body>
