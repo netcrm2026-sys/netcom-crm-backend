@@ -60,7 +60,11 @@ function generateGreeting(employeeName = 'Team') {
 // SUBSCRIPTION PAYMENT REMINDER SERVICE
 // ============================================================
 
-const SUBSCRIPTION_REMINDER_DAYS = [10, 5, 3, 2, 1, 0];
+// REMINDER DAYS FOR EXPIRY
+const SUBSCRIPTION_REMINDER_DAYS = [30, 20, 15, 10, 5, 3, 2, 1, 0];
+
+// REMINDER DAYS FOR PAYMENT DUE
+const PAYMENT_REMINDER_DAYS = [10, 5, 3, 2, 1, 0];
 
 async function checkSubscriptionAndSendReminders() {
   console.log('🔍 Checking subscription payment reminders...');
@@ -93,7 +97,7 @@ async function checkSubscriptionAndSendReminders() {
     
     console.log(`👤 Found ${recipients.length} recipient(s)`);
     
-    // 3. Find expiring subscriptions (based on endDate)
+    // 3. Find expiring subscriptions and pending payments
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
@@ -103,64 +107,113 @@ async function checkSubscriptionAndSendReminders() {
     clients.forEach(client => {
       const payments = client.payments || [];
       payments.forEach(payment => {
-        // Skip one-time payments
-        if (payment.billingType === 'one-time' || payment.billingType === 'One-Time') return;
+        // Skip one-time payments for expiry reminders, but include them for pending payments
+        const isOneTime = payment.billingType === 'one-time' || payment.billingType === 'One-Time';
         
-        // ========== SECTION 1: CHECK EXPIRY (endDate) ==========
+        // ========== SECTION 1: CHECK EXPIRY (endDate) - FOR ALL SUBSCRIPTIONS ==========
         if (payment.endDate) {
           const daysUntilExpiry = calculateDaysUntil(payment.endDate);
           
+          // Check if expiring in reminder days (including today)
           if (daysUntilExpiry !== null && daysUntilExpiry >= 0 && SUBSCRIPTION_REMINDER_DAYS.includes(daysUntilExpiry)) {
-            expiringSubscriptions.push({
-              clientName: client.name || 'Unknown Client',
-              serviceName: payment.productService || 'Unnamed Service',
-              endDate: payment.endDate,
-              daysUntilExpiry: daysUntilExpiry,
-              amount: payment.periodAmount || 0,
-              billingType: payment.billingType || 'monthly',
-              invoiceNumber: payment.invoiceNumber || 'N/A',
-              status: payment.currentPeriodPaid ? 'Paid' : 'Unpaid',
-            });
+            const endDateObj = new Date(payment.endDate);
+            endDateObj.setHours(0, 0, 0, 0);
+            
+            if (endDateObj >= today) {
+              expiringSubscriptions.push({
+                clientName: client.name || 'Unknown Client',
+                serviceName: payment.productService || 'Unnamed Service',
+                endDate: payment.endDate,
+                daysUntilExpiry: daysUntilExpiry,
+                amount: payment.periodAmount || payment.contractValue || 0,
+                billingType: payment.billingType || 'monthly',
+                invoiceNumber: payment.invoiceNumber || 'N/A',
+                status: payment.currentPeriodPaid ? '✅ Paid' : '❌ Unpaid',
+                isOneTime: isOneTime,
+              });
+            }
           }
         }
         
-        // ========== SECTION 2: CHECK PENDING PAYMENTS ==========
-        // Check if first payment is pending
-        if (payment.firstPaymentPending) {
-          pendingPaymentSubscriptions.push({
-            clientName: client.name || 'Unknown Client',
-            serviceName: payment.productService || 'Unnamed Service',
-            dueDate: payment.startDate || '—',
-            amount: payment.periodAmount || 0,
-            billingType: payment.billingType || 'monthly',
-            invoiceNumber: payment.invoiceNumber || 'N/A',
-            status: '⏳ First Payment Pending',
-            isFirstPayment: true,
-            daysUntilDue: null,
-          });
-          return; // Skip to next payment after adding
-        }
-        
-        // Check if payment is due (not paid and nextBillingDate exists)
-        if (!payment.currentPeriodPaid && payment.nextBillingDate) {
-          const daysUntilDue = calculateDaysUntil(payment.nextBillingDate);
+        // ========== SECTION 2: CHECK PENDING PAYMENTS (ONLY FOR NON-ONE-TIME) ==========
+        if (!isOneTime) {
+          let isPending = false;
+          let pendingData = null;
           
-          // Only include if within reminder days or overdue
-          if (daysUntilDue !== null && SUBSCRIPTION_REMINDER_DAYS.includes(Math.min(daysUntilDue, 0)) || daysUntilDue < 0) {
-            pendingPaymentSubscriptions.push({
+          // CASE 1: First payment pending
+          if (payment.firstPaymentPending === true) {
+            isPending = true;
+            pendingData = {
               clientName: client.name || 'Unknown Client',
               serviceName: payment.productService || 'Unnamed Service',
-              dueDate: payment.nextBillingDate,
-              daysUntilDue: daysUntilDue,
-              amount: payment.periodAmount || 0,
+              dueDate: payment.startDate || '—',
+              amount: payment.periodAmount || payment.contractValue || 0,
               billingType: payment.billingType || 'monthly',
               invoiceNumber: payment.invoiceNumber || 'N/A',
-              status: daysUntilDue < 0 ? '🔴 Overdue' : '⚠️ Due Soon',
-              isFirstPayment: false,
-            });
+              status: '⏳ First Payment Pending',
+              isFirstPayment: true,
+              daysUntilDue: null,
+              priority: 0, // Highest priority
+            };
+          }
+          
+          // CASE 2: Not paid and has next billing date
+          else if (payment.currentPeriodPaid === false && payment.nextBillingDate) {
+            const daysUntilDue = calculateDaysUntil(payment.nextBillingDate);
+            
+            // Include if within reminder days OR overdue
+            if (daysUntilDue !== null && (PAYMENT_REMINDER_DAYS.includes(daysUntilDue) || daysUntilDue < 0)) {
+              const isOverdue = daysUntilDue < 0;
+              isPending = true;
+              pendingData = {
+                clientName: client.name || 'Unknown Client',
+                serviceName: payment.productService || 'Unnamed Service',
+                dueDate: payment.nextBillingDate,
+                daysUntilDue: daysUntilDue,
+                amount: payment.periodAmount || payment.contractValue || 0,
+                billingType: payment.billingType || 'monthly',
+                invoiceNumber: payment.invoiceNumber || 'N/A',
+                status: isOverdue ? '🔴 Overdue' : '⚠️ Due Soon',
+                isFirstPayment: false,
+                priority: isOverdue ? 1 : 2, // Overdue first, then due soon
+              };
+            }
+          }
+          
+          // CASE 3: Check if payment is overdue even if currentPeriodPaid is true (edge case)
+          // This catches cases where payment was marked paid but due date passed without new payment
+          if (!isPending && payment.nextBillingDate && payment.currentPeriodPaid === true) {
+            const daysUntilDue = calculateDaysUntil(payment.nextBillingDate);
+            
+            // If next billing date has passed but it's marked as paid (shouldn't happen, but just in case)
+            if (daysUntilDue !== null && daysUntilDue < 0) {
+              isPending = true;
+              pendingData = {
+                clientName: client.name || 'Unknown Client',
+                serviceName: payment.productService || 'Unnamed Service',
+                dueDate: payment.nextBillingDate,
+                daysUntilDue: daysUntilDue,
+                amount: payment.periodAmount || payment.contractValue || 0,
+                billingType: payment.billingType || 'monthly',
+                invoiceNumber: payment.invoiceNumber || 'N/A',
+                status: '🔴 Overdue (Payment needed)',
+                isFirstPayment: false,
+                priority: 1, // Overdue
+              };
+            }
+          }
+          
+          if (isPending && pendingData) {
+            pendingPaymentSubscriptions.push(pendingData);
           }
         }
       });
+    });
+    
+    // Sort pending payments: Overdue first, then due soon, then first payment pending
+    pendingPaymentSubscriptions.sort((a, b) => {
+      // Priority: 0 = First Payment, 1 = Overdue, 2 = Due Soon
+      return (a.priority || 0) - (b.priority || 0);
     });
     
     // Combine both lists
@@ -169,10 +222,19 @@ async function checkSubscriptionAndSendReminders() {
     
     if (!hasExpiring && !hasPending) {
       console.log('✅ No expiring subscriptions or pending payments today.');
+      console.log(`📊 Stats: ${expiringSubscriptions.length} expiring, ${pendingPaymentSubscriptions.length} pending payments`);
       return { success: true, message: 'No subscriptions to remind about' };
     }
     
     console.log(`📧 Found ${expiringSubscriptions.length} expiring + ${pendingPaymentSubscriptions.length} pending payment(s)`);
+    
+    // Log pending payments for debugging
+    if (pendingPaymentSubscriptions.length > 0) {
+      console.log('📋 Pending payments found:');
+      pendingPaymentSubscriptions.forEach(p => {
+        console.log(`  - ${p.clientName}: ${p.serviceName} (${p.status})`);
+      });
+    }
     
     // 4. Send email with both sections
     await sendSubscriptionReminderEmail(recipients, expiringSubscriptions, pendingPaymentSubscriptions, db);
@@ -213,14 +275,28 @@ async function sendSubscriptionReminderEmail(recipients, expiringSubscriptions, 
   // ========== SECTION 1: EXPIRING SUBSCRIPTIONS TABLE ==========
   let expiringTable = '';
   if (expiringSubscriptions.length > 0) {
-    // Sort by days remaining
+    // Sort by days remaining (urgent first)
     expiringSubscriptions.sort((a, b) => a.daysUntilExpiry - b.daysUntilExpiry);
     
     expiringTable = expiringSubscriptions.map(sub => {
       const days = sub.daysUntilExpiry;
-      const urgency = days === 0 ? '🔴 EXPIRES TODAY!' : days <= 3 ? '🔴 URGENT' : days <= 7 ? '⚠️ Soon' : 'ℹ️ Upcoming';
-      const bgColor = days === 0 ? '#fee2e2' : days <= 3 ? '#fef3c7' : '#dbeafe';
-      const textColor = days === 0 ? '#dc2626' : days <= 3 ? '#92400e' : '#1e40af';
+      const isUrgent = days <= 3;
+      const isToday = days === 0;
+      
+      let urgencyLabel, bgColor, textColor;
+      if (isToday) {
+        urgencyLabel = '🔴 EXPIRES TODAY!';
+        bgColor = '#fee2e2';
+        textColor = '#dc2626';
+      } else if (isUrgent) {
+        urgencyLabel = '🔴 URGENT';
+        bgColor = '#fef3c7';
+        textColor = '#92400e';
+      } else {
+        urgencyLabel = 'ℹ️ Upcoming';
+        bgColor = '#dbeafe';
+        textColor = '#1e40af';
+      }
       
       return `
         <tr>
@@ -229,15 +305,15 @@ async function sendSubscriptionReminderEmail(recipients, expiringSubscriptions, 
           <td style="padding: 8px 12px; border: 1px solid #e2e8f0;">${formatDate(sub.endDate)}</td>
           <td style="padding: 8px 12px; border: 1px solid #e2e8f0; text-align: center;">
             <span style="background: ${bgColor}; color: ${textColor}; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;">
-              ${days === 0 ? 'Today!' : `${days} days`}
+              ${isToday ? 'Today!' : `${days} days`}
             </span>
             <br>
-            <span style="font-size: 10px; color: ${textColor};">${urgency}</span>
+            <span style="font-size: 10px; color: ${textColor}; font-weight: 600;">${urgencyLabel}</span>
           </td>
           <td style="padding: 8px 12px; border: 1px solid #e2e8f0;">₹${sub.amount.toLocaleString('en-IN')}</td>
           <td style="padding: 8px 12px; border: 1px solid #e2e8f0;">${sub.billingType}</td>
           <td style="padding: 8px 12px; border: 1px solid #e2e8f0;">
-            <span style="color: ${sub.status === 'Paid' ? '#16a34a' : '#dc2626'}; font-weight: 500;">
+            <span style="color: ${sub.status === '✅ Paid' ? '#16a34a' : '#dc2626'}; font-weight: 500;">
               ${sub.status}
             </span>
           </td>
@@ -249,35 +325,42 @@ async function sendSubscriptionReminderEmail(recipients, expiringSubscriptions, 
   // ========== SECTION 2: PENDING PAYMENTS TABLE ==========
   let pendingTable = '';
   if (pendingSubscriptions.length > 0) {
-    // Sort by due date (overdue first)
+    // Sort: Overdue first, then due soon
     pendingSubscriptions.sort((a, b) => {
-      if (a.daysUntilDue === null) return -1; // First payment pending
-      if (b.daysUntilDue === null) return 1;
+      if (a.isFirstPayment && !b.isFirstPayment) return 1;
+      if (!a.isFirstPayment && b.isFirstPayment) return -1;
+      if (a.daysUntilDue === null) return 1;
+      if (b.daysUntilDue === null) return -1;
       return a.daysUntilDue - b.daysUntilDue;
     });
     
     pendingTable = pendingSubscriptions.map(sub => {
       const days = sub.daysUntilDue;
-      let urgencyLabel, bgColor, textColor;
+      let urgencyLabel, bgColor, textColor, urgencyEmoji;
       
       if (sub.isFirstPayment) {
-        urgencyLabel = '⏳ First Payment';
+        urgencyEmoji = '⏳';
+        urgencyLabel = 'First Payment Pending';
         bgColor = '#fef3c7';
         textColor = '#92400e';
       } else if (days < 0) {
-        urgencyLabel = `🔴 Overdue (${Math.abs(days)} days)`;
+        urgencyEmoji = '🔴';
+        urgencyLabel = `Overdue by ${Math.abs(days)} days`;
         bgColor = '#fee2e2';
         textColor = '#dc2626';
       } else if (days === 0) {
-        urgencyLabel = '🔴 Due Today!';
+        urgencyEmoji = '🔴';
+        urgencyLabel = 'Due Today!';
         bgColor = '#fee2e2';
         textColor = '#dc2626';
       } else if (days <= 3) {
-        urgencyLabel = '⚠️ Due Soon';
+        urgencyEmoji = '⚠️';
+        urgencyLabel = 'Due in ' + days + ' days';
         bgColor = '#fef3c7';
         textColor = '#92400e';
       } else {
-        urgencyLabel = 'ℹ️ Upcoming';
+        urgencyEmoji = 'ℹ️';
+        urgencyLabel = 'Due in ' + days + ' days';
         bgColor = '#dbeafe';
         textColor = '#1e40af';
       }
@@ -295,7 +378,7 @@ async function sendSubscriptionReminderEmail(recipients, expiringSubscriptions, 
               ${daysDisplay}
             </span>
             <br>
-            <span style="font-size: 10px; color: ${textColor};">${urgencyLabel}</span>
+            <span style="font-size: 10px; color: ${textColor}; font-weight: 600;">${urgencyEmoji} ${urgencyLabel}</span>
           </td>
           <td style="padding: 8px 12px; border: 1px solid #e2e8f0;">₹${sub.amount.toLocaleString('en-IN')}</td>
           <td style="padding: 8px 12px; border: 1px solid #e2e8f0;">${sub.billingType}</td>
@@ -308,7 +391,16 @@ async function sendSubscriptionReminderEmail(recipients, expiringSubscriptions, 
   const totalExpiring = expiringSubscriptions.length;
   const totalPending = pendingSubscriptions.length;
   const urgentExpiring = expiringSubscriptions.filter(s => s.daysUntilExpiry <= 3).length;
-  const urgentPending = pendingSubscriptions.filter(s => s.daysUntilDue !== null && s.daysUntilDue <= 3).length;
+  const urgentPending = pendingSubscriptions.filter(s => {
+    if (s.isFirstPayment) return true;
+    return s.daysUntilDue !== null && s.daysUntilDue <= 3;
+  }).length;
+  
+  // Count overdue payments specifically
+  const overdueCount = pendingSubscriptions.filter(s => {
+    if (s.isFirstPayment) return false;
+    return s.daysUntilDue !== null && s.daysUntilDue < 0;
+  }).length;
   
   const subject = `[NetCRM] Subscription Status Summary - ${totalExpiring + totalPending} item(s) need attention`;
 
@@ -397,6 +489,9 @@ async function sendSubscriptionReminderEmail(recipients, expiringSubscriptions, 
           border-radius: 12px;
           margin-left: 8px;
         }
+        .section-title .badge.overdue-badge {
+          background: #dc2626;
+        }
         table { 
           width: 100%; 
           border-collapse: collapse; 
@@ -458,6 +553,12 @@ async function sendSubscriptionReminderEmail(recipients, expiringSubscriptions, 
           table { font-size: 11px; }
           th, td { padding: 6px 8px; }
         }
+        .overdue-highlight {
+          background: #fee2e2 !important;
+        }
+        .due-soon-highlight {
+          background: #fef3c7 !important;
+        }
       </style>
     </head>
     <body>
@@ -482,11 +583,18 @@ async function sendSubscriptionReminderEmail(recipients, expiringSubscriptions, 
             <span class="number">${totalPending}</span>
             <span class="label">Pending Payments</span>
           </div>
+          ${overdueCount > 0 ? `
+            <div class="stat urgent">
+              <span class="number" style="color: #dc2626;">${overdueCount}</span>
+              <span class="label" style="color: #dc2626;">Overdue!</span>
+            </div>
+          ` : ''}
         </div>
 
-        ${(urgentExpiring > 0 || urgentPending > 0) ? `
+        ${(urgentExpiring > 0 || urgentPending > 0 || overdueCount > 0) ? `
           <div class="alert-box urgent-alert">
-            <strong>⚠️ ${urgentExpiring + urgentPending} urgent item(s)</strong> require immediate attention!
+            <strong>⚠️ ${urgentExpiring + urgentPending + overdueCount} urgent item(s)</strong> require immediate attention!
+            ${overdueCount > 0 ? ` 🔴 ${overdueCount} of these are OVERDUE!` : ''}
           </div>
         ` : `
           <div class="alert-box">
@@ -497,7 +605,7 @@ async function sendSubscriptionReminderEmail(recipients, expiringSubscriptions, 
         <!-- ===== SECTION 1: EXPIRING SUBSCRIPTIONS ===== -->
         ${expiringSubscriptions.length > 0 ? `
           <div class="section-title">
-            🔔 Expiring Subscriptions <span class="badge">${totalExpiring}</span>
+            🔔 Subscriptions Expiring Soon <span class="badge">${totalExpiring}</span>
           </div>
           <table>
             <thead>
@@ -516,14 +624,14 @@ async function sendSubscriptionReminderEmail(recipients, expiringSubscriptions, 
             </tbody>
           </table>
         ` : `
-          <div class="section-title">🔔 Expiring Subscriptions <span class="badge">0</span></div>
+          <div class="section-title">🔔 Subscriptions Expiring Soon <span class="badge">0</span></div>
           <div class="empty-msg">✅ No subscriptions expiring soon</div>
         `}
 
         <!-- ===== SECTION 2: PENDING PAYMENTS ===== -->
         ${pendingSubscriptions.length > 0 ? `
           <div class="section-title">
-            💳 Pending Payments <span class="badge">${totalPending}</span>
+            💳 Pending Payments <span class="badge ${overdueCount > 0 ? 'overdue-badge' : ''}">${totalPending}</span>
           </div>
           <table>
             <thead>
