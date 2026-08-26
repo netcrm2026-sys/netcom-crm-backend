@@ -588,16 +588,22 @@ app.get("/api/test-amc-reminders", async (req, res) => {
 /* =========================
    SUBSCRIPTION REMINDER ROUTES
 ========================= */
-app.post("/api/check-subscription-reminders", async (req, res) => {
+async function runAMCReminderCheck(req, res) {
   try {
-    console.log("🔍 Subscription reminder check triggered");
-    const result = await checkSubscriptionAndSendReminders();
+    console.log("🔍 AMC reminder check triggered");
+    const result = await checkAMCExpiryAndSendReminders();
     res.status(200).json(result);
   } catch (error) {
-    console.error("Error in subscription reminder check:", error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error("Error in AMC reminder check:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
-});
+}
+
+app.get("/api/check-amc-reminders", runAMCReminderCheck);
+app.post("/api/check-amc-reminders", runAMCReminderCheck);
 
 app.get("/api/test-subscription-reminders", async (req, res) => {
   try {
